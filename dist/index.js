@@ -4,10 +4,33 @@ import os, { EOL } from "os";
 import * as fs from "fs";
 import { constants, promises } from "fs";
 import "path";
+import * as http from "http";
+import * as https from "https";
 import * as events from "events";
 import "child_process";
 import "timers";
+// \0rolldown/runtime.js
+var __create = Object.create;
+var __defProp = Object.defineProperty;
+var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+var __getOwnPropNames = Object.getOwnPropertyNames;
+var __getProtoOf = Object.getPrototypeOf;
+var __hasOwnProp = Object.prototype.hasOwnProperty;
 var __commonJSMin = (cb, mod) => () => (mod || (cb((mod = { exports: {} }).exports, mod, mod.exports), cb = null), mod.exports);
+var __copyProps = (to, from, except, desc) => {
+	if (from && typeof from === "object" || typeof from === "function") for (var keys = __getOwnPropNames(from), i = 0, n = keys.length, key; i < n; i++) {
+		key = keys[i];
+		if (!__hasOwnProp.call(to, key) && key !== except) __defProp(to, key, {
+			get: ((k) => from[k]).bind(null, key),
+			enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable
+		});
+	}
+	return to;
+};
+var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(isNodeMode || !mod || !mod.__esModule || !__hasOwnProp.call(mod, "default") ? __defProp(target, "default", {
+	value: mod,
+	enumerable: true
+}) : target, mod));
 var __require = /* #__PURE__ */ (() => createRequire(import.meta.url))();
 // node_modules/@actions/core/lib/utils.js
 /**
@@ -106,15 +129,90 @@ function escapeData(s) {
 function escapeProperty(s) {
 	return toCommandValue(s).replace(/%/g, "%25").replace(/\r/g, "%0D").replace(/\n/g, "%0A").replace(/:/g, "%3A").replace(/,/g, "%2C");
 }
+// node_modules/@actions/http-client/lib/proxy.js
+function getProxyUrl(reqUrl) {
+	const usingSsl = reqUrl.protocol === "https:";
+	if (checkBypass(reqUrl)) return;
+	const proxyVar = (() => {
+		if (usingSsl) return process.env["https_proxy"] || process.env["HTTPS_PROXY"];
+		else return process.env["http_proxy"] || process.env["HTTP_PROXY"];
+	})();
+	if (proxyVar) try {
+		return new DecodedURL(proxyVar);
+	} catch (_a) {
+		if (!proxyVar.startsWith("http://") && !proxyVar.startsWith("https://")) return new DecodedURL(`http://${proxyVar}`);
+	}
+	else return;
+}
+function checkBypass(reqUrl) {
+	if (!reqUrl.hostname) return false;
+	const reqHost = reqUrl.hostname;
+	if (isLoopbackAddress(reqHost)) return true;
+	const noProxy = process.env["no_proxy"] || process.env["NO_PROXY"] || "";
+	if (!noProxy) return false;
+	let reqPort;
+	if (reqUrl.port) reqPort = Number(reqUrl.port);
+	else if (reqUrl.protocol === "http:") reqPort = 80;
+	else if (reqUrl.protocol === "https:") reqPort = 443;
+	const upperReqHosts = [reqUrl.hostname.toUpperCase()];
+	if (typeof reqPort === "number") upperReqHosts.push(`${upperReqHosts[0]}:${reqPort}`);
+	for (const upperNoProxyItem of noProxy.split(",").map((x) => x.trim().toUpperCase()).filter((x) => x)) if (upperNoProxyItem === "*" || upperReqHosts.some((x) => x === upperNoProxyItem || x.endsWith(`.${upperNoProxyItem}`) || upperNoProxyItem.startsWith(".") && x.endsWith(`${upperNoProxyItem}`))) return true;
+	return false;
+}
+function isLoopbackAddress(host) {
+	const hostLower = host.toLowerCase();
+	return hostLower === "localhost" || hostLower.startsWith("127.") || hostLower.startsWith("[::1]") || hostLower.startsWith("[0:0:0:0:0:0:0:1]");
+}
+var DecodedURL = class extends URL {
+	constructor(url, base) {
+		super(url, base);
+		this._decodedUsername = decodeURIComponent(super.username);
+		this._decodedPassword = decodeURIComponent(super.password);
+	}
+	get username() {
+		return this._decodedUsername;
+	}
+	get password() {
+		return this._decodedPassword;
+	}
+};
 // node_modules/tunnel/lib/tunnel.js
 var require_tunnel$1 = /* @__PURE__ */ __commonJSMin(((exports) => {
 	__require("net");
-	__require("tls");
+	var tls = __require("tls");
 	var http = __require("http");
-	__require("https");
+	var https = __require("https");
 	var events = __require("events");
 	__require("assert");
 	var util = __require("util");
+	exports.httpOverHttp = httpOverHttp;
+	exports.httpsOverHttp = httpsOverHttp;
+	exports.httpOverHttps = httpOverHttps;
+	exports.httpsOverHttps = httpsOverHttps;
+	function httpOverHttp(options) {
+		var agent = new TunnelingAgent(options);
+		agent.request = http.request;
+		return agent;
+	}
+	function httpsOverHttp(options) {
+		var agent = new TunnelingAgent(options);
+		agent.request = http.request;
+		agent.createSocket = createSecureSocket;
+		agent.defaultPort = 443;
+		return agent;
+	}
+	function httpOverHttps(options) {
+		var agent = new TunnelingAgent(options);
+		agent.request = https.request;
+		return agent;
+	}
+	function httpsOverHttps(options) {
+		var agent = new TunnelingAgent(options);
+		agent.request = https.request;
+		agent.createSocket = createSecureSocket;
+		agent.defaultPort = 443;
+		return agent;
+	}
 	function TunnelingAgent(options) {
 		var self = this;
 		self.options = options || {};
@@ -234,6 +332,19 @@ var require_tunnel$1 = /* @__PURE__ */ __commonJSMin(((exports) => {
 			pending.request.onSocket(socket);
 		});
 	};
+	function createSecureSocket(options, cb) {
+		var self = this;
+		TunnelingAgent.prototype.createSocket.call(self, options, function(socket) {
+			var hostHeader = options.request.getHeader("host");
+			var tlsOptions = mergeOptions({}, self.options, {
+				socket,
+				servername: hostHeader ? hostHeader.replace(/:.*$/, "") : options.host
+			});
+			var secureSocket = tls.connect(0, tlsOptions);
+			self.sockets[self.sockets.indexOf(socket)] = secureSocket;
+			cb(secureSocket);
+		});
+	}
 	function toOptions(host, port, localAddress) {
 		if (typeof host === "string") return {
 			host,
@@ -16066,8 +16177,36 @@ var require_undici = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	const { EventSource } = require_eventsource();
 	module.exports.EventSource = EventSource;
 }));
-require_tunnel();
-require_undici();
+// node_modules/@actions/http-client/lib/index.js
+var import_tunnel = /* @__PURE__ */ __toESM(require_tunnel(), 1);
+var import_undici = require_undici();
+var __awaiter$9 = function(thisArg, _arguments, P, generator) {
+	function adopt(value) {
+		return value instanceof P ? value : new P(function(resolve) {
+			resolve(value);
+		});
+	}
+	return new (P || (P = Promise))(function(resolve, reject) {
+		function fulfilled(value) {
+			try {
+				step(generator.next(value));
+			} catch (e) {
+				reject(e);
+			}
+		}
+		function rejected(value) {
+			try {
+				step(generator["throw"](value));
+			} catch (e) {
+				reject(e);
+			}
+		}
+		function step(result) {
+			result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected);
+		}
+		step((generator = generator.apply(thisArg, _arguments || [])).next());
+	});
+};
 var HttpCodes;
 (function(HttpCodes) {
 	HttpCodes[HttpCodes["OK"] = 200] = "OK";
@@ -16107,8 +16246,582 @@ var MediaTypes;
 (function(MediaTypes) {
 	MediaTypes["ApplicationJson"] = "application/json";
 })(MediaTypes || (MediaTypes = {}));
-HttpCodes.MovedPermanently, HttpCodes.ResourceMoved, HttpCodes.SeeOther, HttpCodes.TemporaryRedirect, HttpCodes.PermanentRedirect;
-HttpCodes.BadGateway, HttpCodes.ServiceUnavailable, HttpCodes.GatewayTimeout;
+const HttpRedirectCodes = [
+	HttpCodes.MovedPermanently,
+	HttpCodes.ResourceMoved,
+	HttpCodes.SeeOther,
+	HttpCodes.TemporaryRedirect,
+	HttpCodes.PermanentRedirect
+];
+const HttpResponseRetryCodes = [
+	HttpCodes.BadGateway,
+	HttpCodes.ServiceUnavailable,
+	HttpCodes.GatewayTimeout
+];
+const RetryableHttpVerbs = [
+	"OPTIONS",
+	"GET",
+	"DELETE",
+	"HEAD"
+];
+const ExponentialBackoffCeiling = 10;
+const ExponentialBackoffTimeSlice = 5;
+var HttpClientError = class HttpClientError extends Error {
+	constructor(message, statusCode) {
+		super(message);
+		this.name = "HttpClientError";
+		this.statusCode = statusCode;
+		Object.setPrototypeOf(this, HttpClientError.prototype);
+	}
+};
+var HttpClientResponse = class {
+	constructor(message) {
+		this.message = message;
+	}
+	readBody() {
+		return __awaiter$9(this, void 0, void 0, function* () {
+			return new Promise((resolve) => __awaiter$9(this, void 0, void 0, function* () {
+				let output = Buffer.alloc(0);
+				this.message.on("data", (chunk) => {
+					output = Buffer.concat([output, chunk]);
+				});
+				this.message.on("end", () => {
+					resolve(output.toString());
+				});
+			}));
+		});
+	}
+	readBodyBuffer() {
+		return __awaiter$9(this, void 0, void 0, function* () {
+			return new Promise((resolve) => __awaiter$9(this, void 0, void 0, function* () {
+				const chunks = [];
+				this.message.on("data", (chunk) => {
+					chunks.push(chunk);
+				});
+				this.message.on("end", () => {
+					resolve(Buffer.concat(chunks));
+				});
+			}));
+		});
+	}
+};
+var HttpClient = class {
+	constructor(userAgent, handlers, requestOptions) {
+		this._ignoreSslError = false;
+		this._allowRedirects = true;
+		this._allowRedirectDowngrade = false;
+		this._maxRedirects = 50;
+		this._allowRetries = false;
+		this._maxRetries = 1;
+		this._keepAlive = false;
+		this._disposed = false;
+		this.userAgent = this._getUserAgentWithOrchestrationId(userAgent);
+		this.handlers = handlers || [];
+		this.requestOptions = requestOptions;
+		if (requestOptions) {
+			if (requestOptions.ignoreSslError != null) this._ignoreSslError = requestOptions.ignoreSslError;
+			this._socketTimeout = requestOptions.socketTimeout;
+			if (requestOptions.allowRedirects != null) this._allowRedirects = requestOptions.allowRedirects;
+			if (requestOptions.allowRedirectDowngrade != null) this._allowRedirectDowngrade = requestOptions.allowRedirectDowngrade;
+			if (requestOptions.maxRedirects != null) this._maxRedirects = Math.max(requestOptions.maxRedirects, 0);
+			if (requestOptions.keepAlive != null) this._keepAlive = requestOptions.keepAlive;
+			if (requestOptions.allowRetries != null) this._allowRetries = requestOptions.allowRetries;
+			if (requestOptions.maxRetries != null) this._maxRetries = requestOptions.maxRetries;
+		}
+	}
+	options(requestUrl, additionalHeaders) {
+		return __awaiter$9(this, void 0, void 0, function* () {
+			return this.request("OPTIONS", requestUrl, null, additionalHeaders || {});
+		});
+	}
+	get(requestUrl, additionalHeaders) {
+		return __awaiter$9(this, void 0, void 0, function* () {
+			return this.request("GET", requestUrl, null, additionalHeaders || {});
+		});
+	}
+	del(requestUrl, additionalHeaders) {
+		return __awaiter$9(this, void 0, void 0, function* () {
+			return this.request("DELETE", requestUrl, null, additionalHeaders || {});
+		});
+	}
+	post(requestUrl, data, additionalHeaders) {
+		return __awaiter$9(this, void 0, void 0, function* () {
+			return this.request("POST", requestUrl, data, additionalHeaders || {});
+		});
+	}
+	patch(requestUrl, data, additionalHeaders) {
+		return __awaiter$9(this, void 0, void 0, function* () {
+			return this.request("PATCH", requestUrl, data, additionalHeaders || {});
+		});
+	}
+	put(requestUrl, data, additionalHeaders) {
+		return __awaiter$9(this, void 0, void 0, function* () {
+			return this.request("PUT", requestUrl, data, additionalHeaders || {});
+		});
+	}
+	head(requestUrl, additionalHeaders) {
+		return __awaiter$9(this, void 0, void 0, function* () {
+			return this.request("HEAD", requestUrl, null, additionalHeaders || {});
+		});
+	}
+	sendStream(verb, requestUrl, stream, additionalHeaders) {
+		return __awaiter$9(this, void 0, void 0, function* () {
+			return this.request(verb, requestUrl, stream, additionalHeaders);
+		});
+	}
+	/**
+	* Gets a typed object from an endpoint
+	* Be aware that not found returns a null.  Other errors (4xx, 5xx) reject the promise
+	*/
+	getJson(requestUrl_1) {
+		return __awaiter$9(this, arguments, void 0, function* (requestUrl, additionalHeaders = {}) {
+			additionalHeaders[Headers.Accept] = this._getExistingOrDefaultHeader(additionalHeaders, Headers.Accept, MediaTypes.ApplicationJson);
+			const res = yield this.get(requestUrl, additionalHeaders);
+			return this._processResponse(res, this.requestOptions);
+		});
+	}
+	postJson(requestUrl_1, obj_1) {
+		return __awaiter$9(this, arguments, void 0, function* (requestUrl, obj, additionalHeaders = {}) {
+			const data = JSON.stringify(obj, null, 2);
+			additionalHeaders[Headers.Accept] = this._getExistingOrDefaultHeader(additionalHeaders, Headers.Accept, MediaTypes.ApplicationJson);
+			additionalHeaders[Headers.ContentType] = this._getExistingOrDefaultContentTypeHeader(additionalHeaders, MediaTypes.ApplicationJson);
+			const res = yield this.post(requestUrl, data, additionalHeaders);
+			return this._processResponse(res, this.requestOptions);
+		});
+	}
+	putJson(requestUrl_1, obj_1) {
+		return __awaiter$9(this, arguments, void 0, function* (requestUrl, obj, additionalHeaders = {}) {
+			const data = JSON.stringify(obj, null, 2);
+			additionalHeaders[Headers.Accept] = this._getExistingOrDefaultHeader(additionalHeaders, Headers.Accept, MediaTypes.ApplicationJson);
+			additionalHeaders[Headers.ContentType] = this._getExistingOrDefaultContentTypeHeader(additionalHeaders, MediaTypes.ApplicationJson);
+			const res = yield this.put(requestUrl, data, additionalHeaders);
+			return this._processResponse(res, this.requestOptions);
+		});
+	}
+	patchJson(requestUrl_1, obj_1) {
+		return __awaiter$9(this, arguments, void 0, function* (requestUrl, obj, additionalHeaders = {}) {
+			const data = JSON.stringify(obj, null, 2);
+			additionalHeaders[Headers.Accept] = this._getExistingOrDefaultHeader(additionalHeaders, Headers.Accept, MediaTypes.ApplicationJson);
+			additionalHeaders[Headers.ContentType] = this._getExistingOrDefaultContentTypeHeader(additionalHeaders, MediaTypes.ApplicationJson);
+			const res = yield this.patch(requestUrl, data, additionalHeaders);
+			return this._processResponse(res, this.requestOptions);
+		});
+	}
+	/**
+	* Makes a raw http request.
+	* All other methods such as get, post, patch, and request ultimately call this.
+	* Prefer get, del, post and patch
+	*/
+	request(verb, requestUrl, data, headers) {
+		return __awaiter$9(this, void 0, void 0, function* () {
+			if (this._disposed) throw new Error("Client has already been disposed.");
+			const parsedUrl = new URL(requestUrl);
+			let info = this._prepareRequest(verb, parsedUrl, headers);
+			const maxTries = this._allowRetries && RetryableHttpVerbs.includes(verb) ? this._maxRetries + 1 : 1;
+			let numTries = 0;
+			let response;
+			do {
+				response = yield this.requestRaw(info, data);
+				if (response && response.message && response.message.statusCode === HttpCodes.Unauthorized) {
+					let authenticationHandler;
+					for (const handler of this.handlers) if (handler.canHandleAuthentication(response)) {
+						authenticationHandler = handler;
+						break;
+					}
+					if (authenticationHandler) return authenticationHandler.handleAuthentication(this, info, data);
+					else return response;
+				}
+				let redirectsRemaining = this._maxRedirects;
+				while (response.message.statusCode && HttpRedirectCodes.includes(response.message.statusCode) && this._allowRedirects && redirectsRemaining > 0) {
+					const redirectUrl = response.message.headers["location"];
+					if (!redirectUrl) break;
+					const parsedRedirectUrl = new URL(redirectUrl);
+					if (parsedUrl.protocol === "https:" && parsedUrl.protocol !== parsedRedirectUrl.protocol && !this._allowRedirectDowngrade) throw new Error("Redirect from HTTPS to HTTP protocol. This downgrade is not allowed for security reasons. If you want to allow this behavior, set the allowRedirectDowngrade option to true.");
+					yield response.readBody();
+					if (parsedRedirectUrl.hostname !== parsedUrl.hostname) {
+						for (const header in headers) if (header.toLowerCase() === "authorization") delete headers[header];
+					}
+					info = this._prepareRequest(verb, parsedRedirectUrl, headers);
+					response = yield this.requestRaw(info, data);
+					redirectsRemaining--;
+				}
+				if (!response.message.statusCode || !HttpResponseRetryCodes.includes(response.message.statusCode)) return response;
+				numTries += 1;
+				if (numTries < maxTries) {
+					yield response.readBody();
+					yield this._performExponentialBackoff(numTries);
+				}
+			} while (numTries < maxTries);
+			return response;
+		});
+	}
+	/**
+	* Needs to be called if keepAlive is set to true in request options.
+	*/
+	dispose() {
+		if (this._agent) this._agent.destroy();
+		this._disposed = true;
+	}
+	/**
+	* Raw request.
+	* @param info
+	* @param data
+	*/
+	requestRaw(info, data) {
+		return __awaiter$9(this, void 0, void 0, function* () {
+			return new Promise((resolve, reject) => {
+				function callbackForResult(err, res) {
+					if (err) reject(err);
+					else if (!res) reject(/* @__PURE__ */ new Error("Unknown error"));
+					else resolve(res);
+				}
+				this.requestRawWithCallback(info, data, callbackForResult);
+			});
+		});
+	}
+	/**
+	* Raw request with callback.
+	* @param info
+	* @param data
+	* @param onResult
+	*/
+	requestRawWithCallback(info, data, onResult) {
+		if (typeof data === "string") {
+			if (!info.options.headers) info.options.headers = {};
+			info.options.headers["Content-Length"] = Buffer.byteLength(data, "utf8");
+		}
+		let callbackCalled = false;
+		function handleResult(err, res) {
+			if (!callbackCalled) {
+				callbackCalled = true;
+				onResult(err, res);
+			}
+		}
+		const req = info.httpModule.request(info.options, (msg) => {
+			handleResult(void 0, new HttpClientResponse(msg));
+		});
+		let socket;
+		req.on("socket", (sock) => {
+			socket = sock;
+		});
+		req.setTimeout(this._socketTimeout || 18e4, () => {
+			if (socket) socket.end();
+			handleResult(/* @__PURE__ */ new Error(`Request timeout: ${info.options.path}`));
+		});
+		req.on("error", function(err) {
+			handleResult(err);
+		});
+		if (data && typeof data === "string") req.write(data, "utf8");
+		if (data && typeof data !== "string") {
+			data.on("close", function() {
+				req.end();
+			});
+			data.pipe(req);
+		} else req.end();
+	}
+	/**
+	* Gets an http agent. This function is useful when you need an http agent that handles
+	* routing through a proxy server - depending upon the url and proxy environment variables.
+	* @param serverUrl  The server URL where the request will be sent. For example, https://api.github.com
+	*/
+	getAgent(serverUrl) {
+		const parsedUrl = new URL(serverUrl);
+		return this._getAgent(parsedUrl);
+	}
+	getAgentDispatcher(serverUrl) {
+		const parsedUrl = new URL(serverUrl);
+		const proxyUrl = getProxyUrl(parsedUrl);
+		if (!(proxyUrl && proxyUrl.hostname)) return;
+		return this._getProxyAgentDispatcher(parsedUrl, proxyUrl);
+	}
+	_prepareRequest(method, requestUrl, headers) {
+		const info = {};
+		info.parsedUrl = requestUrl;
+		const usingSsl = info.parsedUrl.protocol === "https:";
+		info.httpModule = usingSsl ? https : http;
+		const defaultPort = usingSsl ? 443 : 80;
+		info.options = {};
+		info.options.host = info.parsedUrl.hostname;
+		info.options.port = info.parsedUrl.port ? parseInt(info.parsedUrl.port) : defaultPort;
+		info.options.path = (info.parsedUrl.pathname || "") + (info.parsedUrl.search || "");
+		info.options.method = method;
+		info.options.headers = this._mergeHeaders(headers);
+		if (this.userAgent != null) info.options.headers["user-agent"] = this.userAgent;
+		info.options.agent = this._getAgent(info.parsedUrl);
+		if (this.handlers) for (const handler of this.handlers) handler.prepareRequest(info.options);
+		return info;
+	}
+	_mergeHeaders(headers) {
+		if (this.requestOptions && this.requestOptions.headers) return Object.assign({}, lowercaseKeys(this.requestOptions.headers), lowercaseKeys(headers || {}));
+		return lowercaseKeys(headers || {});
+	}
+	/**
+	* Gets an existing header value or returns a default.
+	* Handles converting number header values to strings since HTTP headers must be strings.
+	* Note: This returns string | string[] since some headers can have multiple values.
+	* For headers that must always be a single string (like Content-Type), use the
+	* specialized _getExistingOrDefaultContentTypeHeader method instead.
+	*/
+	_getExistingOrDefaultHeader(additionalHeaders, header, _default) {
+		let clientHeader;
+		if (this.requestOptions && this.requestOptions.headers) {
+			const headerValue = lowercaseKeys(this.requestOptions.headers)[header];
+			if (headerValue) clientHeader = typeof headerValue === "number" ? headerValue.toString() : headerValue;
+		}
+		const additionalValue = additionalHeaders[header];
+		if (additionalValue !== void 0) return typeof additionalValue === "number" ? additionalValue.toString() : additionalValue;
+		if (clientHeader !== void 0) return clientHeader;
+		return _default;
+	}
+	/**
+	* Specialized version of _getExistingOrDefaultHeader for Content-Type header.
+	* Always returns a single string (not an array) since Content-Type should be a single value.
+	* Converts arrays to comma-separated strings and numbers to strings to ensure type safety.
+	* This was split from _getExistingOrDefaultHeader to provide stricter typing for callers
+	* that assign the result to places expecting a string (e.g., additionalHeaders[Headers.ContentType]).
+	*/
+	_getExistingOrDefaultContentTypeHeader(additionalHeaders, _default) {
+		let clientHeader;
+		if (this.requestOptions && this.requestOptions.headers) {
+			const headerValue = lowercaseKeys(this.requestOptions.headers)[Headers.ContentType];
+			if (headerValue) {
+				if (typeof headerValue === "number") clientHeader = String(headerValue);
+				else if (Array.isArray(headerValue)) clientHeader = headerValue.join(", ");
+				else clientHeader = headerValue;
+			}
+		}
+		const additionalValue = additionalHeaders[Headers.ContentType];
+		if (additionalValue !== void 0) {
+			if (typeof additionalValue === "number") return String(additionalValue);
+			else if (Array.isArray(additionalValue)) return additionalValue.join(", ");
+			else return additionalValue;
+		}
+		if (clientHeader !== void 0) return clientHeader;
+		return _default;
+	}
+	_getAgent(parsedUrl) {
+		let agent;
+		const proxyUrl = getProxyUrl(parsedUrl);
+		const useProxy = proxyUrl && proxyUrl.hostname;
+		if (this._keepAlive && useProxy) agent = this._proxyAgent;
+		if (!useProxy) agent = this._agent;
+		if (agent) return agent;
+		const usingSsl = parsedUrl.protocol === "https:";
+		let maxSockets = 100;
+		if (this.requestOptions) maxSockets = this.requestOptions.maxSockets || http.globalAgent.maxSockets;
+		if (proxyUrl && proxyUrl.hostname) {
+			const agentOptions = {
+				maxSockets,
+				keepAlive: this._keepAlive,
+				proxy: Object.assign(Object.assign({}, (proxyUrl.username || proxyUrl.password) && { proxyAuth: `${proxyUrl.username}:${proxyUrl.password}` }), {
+					host: proxyUrl.hostname,
+					port: proxyUrl.port
+				})
+			};
+			let tunnelAgent;
+			const overHttps = proxyUrl.protocol === "https:";
+			if (usingSsl) tunnelAgent = overHttps ? import_tunnel.httpsOverHttps : import_tunnel.httpsOverHttp;
+			else tunnelAgent = overHttps ? import_tunnel.httpOverHttps : import_tunnel.httpOverHttp;
+			agent = tunnelAgent(agentOptions);
+			this._proxyAgent = agent;
+		}
+		if (!agent) {
+			const options = {
+				keepAlive: this._keepAlive,
+				maxSockets
+			};
+			agent = usingSsl ? new https.Agent(options) : new http.Agent(options);
+			this._agent = agent;
+		}
+		if (usingSsl && this._ignoreSslError) agent.options = Object.assign(agent.options || {}, { rejectUnauthorized: false });
+		return agent;
+	}
+	_getProxyAgentDispatcher(parsedUrl, proxyUrl) {
+		let proxyAgent;
+		if (this._keepAlive) proxyAgent = this._proxyAgentDispatcher;
+		if (proxyAgent) return proxyAgent;
+		const usingSsl = parsedUrl.protocol === "https:";
+		proxyAgent = new import_undici.ProxyAgent(Object.assign({
+			uri: proxyUrl.href,
+			pipelining: !this._keepAlive ? 0 : 1
+		}, (proxyUrl.username || proxyUrl.password) && { token: `Basic ${Buffer.from(`${proxyUrl.username}:${proxyUrl.password}`).toString("base64")}` }));
+		this._proxyAgentDispatcher = proxyAgent;
+		if (usingSsl && this._ignoreSslError) proxyAgent.options = Object.assign(proxyAgent.options.requestTls || {}, { rejectUnauthorized: false });
+		return proxyAgent;
+	}
+	_getUserAgentWithOrchestrationId(userAgent) {
+		const baseUserAgent = userAgent || "actions/http-client";
+		const orchId = process.env["ACTIONS_ORCHESTRATION_ID"];
+		if (orchId) return `${baseUserAgent} actions_orchestration_id/${orchId.replace(/[^a-z0-9_.-]/gi, "_")}`;
+		return baseUserAgent;
+	}
+	_performExponentialBackoff(retryNumber) {
+		return __awaiter$9(this, void 0, void 0, function* () {
+			retryNumber = Math.min(ExponentialBackoffCeiling, retryNumber);
+			const ms = ExponentialBackoffTimeSlice * Math.pow(2, retryNumber);
+			return new Promise((resolve) => setTimeout(() => resolve(), ms));
+		});
+	}
+	_processResponse(res, options) {
+		return __awaiter$9(this, void 0, void 0, function* () {
+			return new Promise((resolve, reject) => __awaiter$9(this, void 0, void 0, function* () {
+				const statusCode = res.message.statusCode || 0;
+				const response = {
+					statusCode,
+					result: null,
+					headers: {}
+				};
+				if (statusCode === HttpCodes.NotFound) resolve(response);
+				function dateTimeDeserializer(key, value) {
+					if (typeof value === "string") {
+						const a = new Date(value);
+						if (!isNaN(a.valueOf())) return a;
+					}
+					return value;
+				}
+				let obj;
+				let contents;
+				try {
+					contents = yield res.readBody();
+					if (contents && contents.length > 0) {
+						if (options && options.deserializeDates) obj = JSON.parse(contents, dateTimeDeserializer);
+						else obj = JSON.parse(contents);
+						response.result = obj;
+					}
+					response.headers = res.message.headers;
+				} catch (err) {}
+				if (statusCode > 299) {
+					let msg;
+					if (obj && obj.message) msg = obj.message;
+					else if (contents && contents.length > 0) msg = contents;
+					else msg = `Failed request: (${statusCode})`;
+					const err = new HttpClientError(msg, statusCode);
+					err.result = response.result;
+					reject(err);
+				} else resolve(response);
+			}));
+		});
+	}
+};
+const lowercaseKeys = (obj) => Object.keys(obj).reduce((c, k) => (c[k.toLowerCase()] = obj[k], c), {});
+// node_modules/@actions/http-client/lib/auth.js
+var __awaiter$8 = function(thisArg, _arguments, P, generator) {
+	function adopt(value) {
+		return value instanceof P ? value : new P(function(resolve) {
+			resolve(value);
+		});
+	}
+	return new (P || (P = Promise))(function(resolve, reject) {
+		function fulfilled(value) {
+			try {
+				step(generator.next(value));
+			} catch (e) {
+				reject(e);
+			}
+		}
+		function rejected(value) {
+			try {
+				step(generator["throw"](value));
+			} catch (e) {
+				reject(e);
+			}
+		}
+		function step(result) {
+			result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected);
+		}
+		step((generator = generator.apply(thisArg, _arguments || [])).next());
+	});
+};
+var BearerCredentialHandler = class {
+	constructor(token) {
+		this.token = token;
+	}
+	prepareRequest(options) {
+		if (!options.headers) throw Error("The request has no headers");
+		options.headers["Authorization"] = `Bearer ${this.token}`;
+	}
+	canHandleAuthentication() {
+		return false;
+	}
+	handleAuthentication() {
+		return __awaiter$8(this, void 0, void 0, function* () {
+			throw new Error("not implemented");
+		});
+	}
+};
+// node_modules/@actions/core/lib/oidc-utils.js
+var __awaiter$7 = function(thisArg, _arguments, P, generator) {
+	function adopt(value) {
+		return value instanceof P ? value : new P(function(resolve) {
+			resolve(value);
+		});
+	}
+	return new (P || (P = Promise))(function(resolve, reject) {
+		function fulfilled(value) {
+			try {
+				step(generator.next(value));
+			} catch (e) {
+				reject(e);
+			}
+		}
+		function rejected(value) {
+			try {
+				step(generator["throw"](value));
+			} catch (e) {
+				reject(e);
+			}
+		}
+		function step(result) {
+			result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected);
+		}
+		step((generator = generator.apply(thisArg, _arguments || [])).next());
+	});
+};
+var OidcClient = class OidcClient {
+	static createHttpClient(allowRetry = true, maxRetry = 10) {
+		const requestOptions = {
+			allowRetries: allowRetry,
+			maxRetries: maxRetry
+		};
+		return new HttpClient("actions/oidc-client", [new BearerCredentialHandler(OidcClient.getRequestToken())], requestOptions);
+	}
+	static getRequestToken() {
+		const token = process.env["ACTIONS_ID_TOKEN_REQUEST_TOKEN"];
+		if (!token) throw new Error("Unable to get ACTIONS_ID_TOKEN_REQUEST_TOKEN env variable");
+		return token;
+	}
+	static getIDTokenUrl() {
+		const runtimeUrl = process.env["ACTIONS_ID_TOKEN_REQUEST_URL"];
+		if (!runtimeUrl) throw new Error("Unable to get ACTIONS_ID_TOKEN_REQUEST_URL env variable");
+		return runtimeUrl;
+	}
+	static getCall(id_token_url) {
+		return __awaiter$7(this, void 0, void 0, function* () {
+			var _a;
+			const id_token = (_a = (yield OidcClient.createHttpClient().getJson(id_token_url).catch((error) => {
+				throw new Error(`Failed to get ID Token. \n 
+        Error Code : ${error.statusCode}\n 
+        Error Message: ${error.message}`);
+			})).result) === null || _a === void 0 ? void 0 : _a.value;
+			if (!id_token) throw new Error("Response json body do not have ID Token field");
+			return id_token;
+		});
+	}
+	static getIDToken(audience) {
+		return __awaiter$7(this, void 0, void 0, function* () {
+			try {
+				let id_token_url = OidcClient.getIDTokenUrl();
+				if (audience) id_token_url = `${id_token_url}&audience=${encodeURIComponent(audience)}`;
+				debug(`ID token url is ${id_token_url}`);
+				const id_token = yield OidcClient.getCall(id_token_url);
+				setSecret(id_token);
+				return id_token;
+			} catch (error) {
+				throw new Error(`Error message: ${error.message}`);
+			}
+		});
+	}
+};
 // node_modules/@actions/core/lib/summary.js
 var __awaiter$6 = function(thisArg, _arguments, P, generator) {
 	function adopt(value) {
@@ -16399,6 +17112,34 @@ events.EventEmitter;
 events.EventEmitter;
 os.platform();
 os.arch();
+// node_modules/@actions/core/lib/core.js
+var __awaiter = function(thisArg, _arguments, P, generator) {
+	function adopt(value) {
+		return value instanceof P ? value : new P(function(resolve) {
+			resolve(value);
+		});
+	}
+	return new (P || (P = Promise))(function(resolve, reject) {
+		function fulfilled(value) {
+			try {
+				step(generator.next(value));
+			} catch (e) {
+				reject(e);
+			}
+		}
+		function rejected(value) {
+			try {
+				step(generator["throw"](value));
+			} catch (e) {
+				reject(e);
+			}
+		}
+		function step(result) {
+			result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected);
+		}
+		step((generator = generator.apply(thisArg, _arguments || [])).next());
+	});
+};
 /**
 * The code to exit an action
 */
@@ -16413,6 +17154,38 @@ var ExitCode;
 	*/
 	ExitCode[ExitCode["Failure"] = 1] = "Failure";
 })(ExitCode || (ExitCode = {}));
+/**
+* Registers a secret which will get masked from logs
+*
+* @param secret - Value of the secret to be masked
+* @remarks
+* This function instructs the Actions runner to mask the specified value in any
+* logs produced during the workflow run. Once registered, the secret value will
+* be replaced with asterisks (***) whenever it appears in console output, logs,
+* or error messages.
+*
+* This is useful for protecting sensitive information such as:
+* - API keys
+* - Access tokens
+* - Authentication credentials
+* - URL parameters containing signatures (SAS tokens)
+*
+* Note that masking only affects future logs; any previous appearances of the
+* secret in logs before calling this function will remain unmasked.
+*
+* @example
+* ```typescript
+* // Register an API token as a secret
+* const apiToken = "abc123xyz456";
+* setSecret(apiToken);
+*
+* // Now any logs containing this value will show *** instead
+* console.log(`Using token: ${apiToken}`); // Outputs: "Using token: ***"
+* ```
+*/
+function setSecret(secret) {
+	issueCommand("add-mask", {}, secret);
+}
 /**
 * Gets the value of an input.
 * Unless trimWhitespace is set to false in InputOptions, the value is also trimmed.
@@ -16438,12 +17211,24 @@ function setFailed(message) {
 	error(message);
 }
 /**
+* Writes debug message to user log
+* @param message debug message
+*/
+function debug(message) {
+	issueCommand("debug", {}, message);
+}
+/**
 * Adds an error issue
 * @param message error issue message. Errors will be converted to string via toString()
 * @param properties optional properties to add to the annotation.
 */
 function error(message, properties = {}) {
 	issueCommand("error", toCommandProperties(properties), message instanceof Error ? message.toString() : message);
+}
+function getIDToken(aud) {
+	return __awaiter(this, void 0, void 0, function* () {
+		return yield OidcClient.getIDToken(aud);
+	});
 }
 // src/utils.ts
 const ColorReset = "\x1B[0m";
@@ -16453,8 +17238,8 @@ function logInfo(message) {
 // src/index.ts
 async function run() {
 	try {
-		logInfo(`The specified input is ${getInput("my-input")}`);
-		logInfo("🎉🎈🎊 Action complete 🎉🎈🎊");
+		await getIDToken(`planetscale:${getInput("oidc-trust", { required: true })}`);
+		logInfo("Created GitHub Actions OIDC token");
 	} catch (error) {
 		setFailed(`❌ Action failed with error: ${error}`);
 	}
