@@ -4,12 +4,11 @@ import * as utils from "./utils";
 
 async function run(): Promise<void> {
   try {
-    // Inputs and validation
-    const myInput = core.getInput("my-input");
+    const oidcTrust = core.getInput("oidc-trust", { required: true });
 
-    utils.logInfo(`The specified input is ${myInput}`);
-
-    utils.logInfo("🎉🎈🎊 Action complete 🎉🎈🎊");
+    // `getIDToken` masks the token in logs
+    await core.getIDToken(`planetscale:${oidcTrust}`);
+    utils.logInfo("Created GitHub Actions OIDC token");
   } catch (error) {
     core.setFailed(`❌ Action failed with error: ${error}`);
   }
