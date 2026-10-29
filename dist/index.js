@@ -1,6 +1,7 @@
 import { createRequire } from "node:module";
 import * as os$1 from "os";
 import os, { EOL } from "os";
+import * as crypto from "crypto";
 import * as fs from "fs";
 import { constants, promises } from "fs";
 import "path";
@@ -128,6 +129,20 @@ function escapeData(s) {
 }
 function escapeProperty(s) {
 	return toCommandValue(s).replace(/%/g, "%25").replace(/\r/g, "%0D").replace(/\n/g, "%0A").replace(/:/g, "%3A").replace(/,/g, "%2C");
+}
+// node_modules/@actions/core/lib/file-command.js
+function issueFileCommand(command, message) {
+	const filePath = process.env[`GITHUB_${command}`];
+	if (!filePath) throw new Error(`Unable to find environment variable for file command ${command}`);
+	if (!fs.existsSync(filePath)) throw new Error(`Missing file at path: ${filePath}`);
+	fs.appendFileSync(filePath, `${toCommandValue(message)}${os$1.EOL}`, { encoding: "utf8" });
+}
+function prepareKeyValueMessage(key, value) {
+	const delimiter = `ghadelimiter_${crypto.randomUUID()}`;
+	const convertedValue = toCommandValue(value);
+	if (key.includes(delimiter)) throw new Error(`Unexpected input: name should not contain the delimiter "${delimiter}"`);
+	if (convertedValue.includes(delimiter)) throw new Error(`Unexpected input: value should not contain the delimiter "${delimiter}"`);
+	return `${key}<<${delimiter}${os$1.EOL}${convertedValue}${os$1.EOL}${delimiter}`;
 }
 // node_modules/@actions/http-client/lib/proxy.js
 function getProxyUrl(reqUrl) {
@@ -17202,6 +17217,17 @@ function getInput(name, options) {
 	return val.trim();
 }
 /**
+* Sets the value of an output.
+*
+* @param     name     name of the output to set
+* @param     value    value to store. Non-string values will be converted to a string via JSON.stringify
+*/
+function setOutput(name, value) {
+	if (process.env["GITHUB_OUTPUT"] || "") return issueFileCommand("OUTPUT", prepareKeyValueMessage(name, value));
+	process.stdout.write(os$1.EOL);
+	issueCommand("set-output", { name }, toCommandValue(value));
+}
+/**
 * Sets the action status to failed.
 * When the action exits it will be with an exit code of 1
 * @param message add error issue message
@@ -17238,8 +17264,25 @@ function logInfo(message) {
 // src/index.ts
 async function run() {
 	try {
-		await getIDToken(`planetscale:${getInput("oidc-trust", { required: true })}`);
+		const organization = getInput("organization", { required: true });
+		const oidcTrust = getInput("oidc-trust", { required: true });
+		const idToken = await getIDToken(`planetscale:${oidcTrust}`);
 		logInfo("Created GitHub Actions OIDC token");
+		const url = `https://api.planetscale.com/v1/organizations/${encodeURIComponent(organization)}/oidc-trusts/${encodeURIComponent(oidcTrust)}/token`;
+		const response = await fetch(url, {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Accept: "application/json"
+			},
+			body: JSON.stringify({ token: idToken })
+		});
+		if (!response.ok) throw new Error(`Failed to exchange OIDC token: ${response.status} ${await response.text()}`);
+		const serviceToken = await response.json();
+		setSecret(serviceToken.token);
+		logInfo(`Created PlanetScale service token ${serviceToken.id}`);
+		setOutput("service-token-id", serviceToken.id);
+		setOutput("service-token", serviceToken.token);
 	} catch (error) {
 		setFailed(`❌ Action failed with error: ${error}`);
 	}

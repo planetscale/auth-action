@@ -16,6 +16,19 @@ jobs:
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
     - name: Run Action
+      id: auth
       uses: ./
       with:
-        oidc-trust: 'test'
+        organization: ${{ vars.PLANETSCALE_ORGANIZATION }}
+        oidc-trust: ${{ vars.PLANETSCALE_OIDC_TRUST_ID }}
+    - name: Read organization
+      env:
+        ORGANIZATION: ${{ vars.PLANETSCALE_ORGANIZATION }}
+        SERVICE_TOKEN_ID: ${{ steps.auth.outputs.service-token-id }}
+        SERVICE_TOKEN: ${{ steps.auth.outputs.service-token }}
+      run: |
+        curl --fail-with-body --silent --show-error \
+          --header "Authorization: $SERVICE_TOKEN_ID:$SERVICE_TOKEN" \
+          --header "Accept: application/json" \
+          "https://api.planetscale.com/v1/organizations/$ORGANIZATION" \
+          | jq '{name, created_at}'
