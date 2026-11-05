@@ -1,24 +1,10 @@
 {
-  "name": "action-template",
+  "name": "@planetscale/auth-action",
   "version": "1.0.0",
   "private": true,
-  "description": "A GitHub Action",
-  "keywords": [
-    "Actions",
-    "node"
-  ],
-  "homepage": "https://github.com/joshmgross/action-template#readme",
-  "bugs": {
-    "url": "https://github.com/joshmgross/action-template/issues"
-  },
-  "license": "MIT",
-  "author": "joshmgross",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/joshmgross/action-template.git"
-  },
+  "description": "Authenticate to the PlanetScale API with OpenID Connect",
+  "license": "Apache-2.0",
   "type": "module",
-  "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
     "pack": "rolldown -c",
