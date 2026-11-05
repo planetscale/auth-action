@@ -6,7 +6,7 @@ workflows:
     '.github/workflows/main.yml':
         - 'actions/checkout@v7.0.1'
         - 'actions/setup-node@v7.1.0'
-        - 'ruby/setup-ruby@v1.299.0'
+        - 'ruby/setup-ruby@v1.334.0'
     '.github/workflows/zizmor.yml':
         - 'actions/checkout@v7.0.1'
         - 'zizmorcore/zizmor-action@v0.8.1'
@@ -26,9 +26,9 @@ dependencies:
         commit: 'sha1-9b3254085494b55a0f7c4c2b3d2d52cc712ce370'
         owner_id: 9919
         repo_id: 259445878
-    'ruby/setup-ruby@v1.299.0':
-        ref: 'v1.299.0'
-        commit: 'sha1-3ff19f5e2baf30647122352b96108b1fbe250c64'
+    'ruby/setup-ruby@v1.334.0':
+        ref: 'v1.334.0'
+        commit: 'sha1-26e5b7d197ebf60545ee9667bcbace0be11ccaec'
         owner_id: 210414
         repo_id: 231208785
     'zizmorcore/zizmor-action@v0.8.1':
