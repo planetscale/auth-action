@@ -50,7 +50,7 @@ jobs:
         node-version-file: .nvmrc
         cache: npm
     - name: Set up Ruby
-      uses: ruby/setup-ruby@v1.299.0
+      uses: ruby/setup-ruby@v1.336.0
       with:
         ruby-version: "4"
     - run: gem install license_finder -v 7.1 # zizmor: ignore[adhoc-packages]
